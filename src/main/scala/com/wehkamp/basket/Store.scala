@@ -1,15 +1,20 @@
 package com.wehkamp.basket
 
-object Catalog {
-  private val catalog = Seq.range(0, 100).map(
+import scala.collection.mutable
+
+object Store {
+  val basketStore = mutable.Map[String, Basket]()
+
+  val userStore = Set("a", "b", "c", "d")
+
+  val catalog = Seq.range(0, 100).map(
     i => (i.toString, Product(id = s"id_$i"
       , name = s"name $i"
       , description = s"description $i"
       , price = 0.5 * i
       , stock = 100))).toMap
 
-
-  def apply() = catalog
+  def newId() = java.util.UUID.randomUUID().toString
 
   def remove(productId: String): Long = {
     if (!catalog.contains(productId)) throw new NotFoundException("Product not found")

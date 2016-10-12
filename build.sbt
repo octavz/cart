@@ -18,6 +18,9 @@ libraryDependencies ++= {
     "com.typesafe.akka" %% "akka-http-testkit" % akkaVersion,
     "com.typesafe.akka" %% "akka-http-spray-json-experimental" % akkaVersion,
     "org.scalatest" %% "scalatest" % "2.2.6" % "test",
+    "com.github.swagger-akka-http" %% "swagger-akka-http" % "0.7.2",
+    "org.webjars" % "swagger-ui" % "2.2.5",
+    "org.webjars" % "jquery" % "2.1.1",
     "com.typesafe.akka" %% "akka-testkit" % akkaVersion % "test"
 
   )
