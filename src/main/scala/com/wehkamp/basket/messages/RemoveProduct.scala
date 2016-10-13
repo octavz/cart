@@ -1,4 +1,4 @@
 package com.wehkamp.basket.messages
 
-case class RemoveProduct(basketId: String, productId: String)
+case class RemoveProduct(userId: String, productId: String)
 

@@ -19,6 +19,4 @@ trait Repository {
 
   def removeProductAndPersist(userId: String, productId: String): Basket
 
-  def addProductAndPersist(userId: String, item: BasketItem): Basket
-
 }

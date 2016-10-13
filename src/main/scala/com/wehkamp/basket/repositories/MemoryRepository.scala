@@ -53,12 +53,6 @@ class MemoryRepository extends Repository {
     val basket = basketStore(userId)
     persistBasket(userId, basket.remove(productId))
   }
-
-  override def addProductAndPersist(userId: String, item: BasketItem): Basket = {
-    val basket = basketStore(userId)
-    persistBasket(userId, basket.add(item))
-  }
-
 }
 
 

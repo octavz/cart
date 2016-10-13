@@ -9,7 +9,7 @@ case class Basket(basketId: String, items: Set[BasketItem] = Set.empty) {
         Basket(basketId = basketId,
           items =
             if (p.quantity > 1) items.filterNot(p == _) + p.copy(quantity = p.quantity - 1)
-            else items.filter(p == _)
+            else items.filterNot(p == _)
         )
       case _ =>
         throw new NotFoundException("Item not found in basket")

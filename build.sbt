@@ -6,7 +6,7 @@ version := "0.0.1"
 
 scalaVersion := "2.11.8"
 
-scalacOptions := Seq("-unchecked", "-deprecation", "-encoding", "utf8")
+scalacOptions := Seq("-unchecked", "-deprecation", "-encoding", "utf8", "-feature")
 
 libraryDependencies ++= {
   val akkaVersion = "2.4.11"
@@ -21,12 +21,15 @@ libraryDependencies ++= {
     "com.github.swagger-akka-http" %% "swagger-akka-http" % "0.7.2",
     "org.webjars" % "swagger-ui" % "2.2.5",
     "org.webjars" % "jquery" % "2.1.1",
+    "org.mockito" % "mockito-core" % "2.2.1" % "test",
     "com.typesafe.akka" %% "akka-testkit" % akkaVersion % "test"
 
   )
 }
 
 Revolver.settings
+
+coverageEnabled := true
 
 
 fork in run := true

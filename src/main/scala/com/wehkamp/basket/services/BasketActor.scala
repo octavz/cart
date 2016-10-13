@@ -24,43 +24,43 @@ class BasketActor(repository: Repository) extends Actor with ActorLogging {
         ServiceResponse(500, e.getMessage)
     }
 
-  def validateIds[T](userId: String, productId: Option[String])(f: Basket => ServiceResponse[T]): ServiceResponse[T] =
-    if (productId.isDefined && !repository.productExists(productId.get)) {
+  def validateProductId[T](productId: String)(f: => ServiceResponse[T]): ServiceResponse[T] =
+    if (!repository.productExists(productId)) {
       ServiceResponse(404, "No product found")
-    } else if (!repository.userExists(userId)) {
-      ServiceResponse(404, "No user found")
-    } else {
-      repository.getBasketByUserId(userId) match {
-        case Some(b) => f(b)
-        case _ => f(repository.persistBasket(userId, Basket(repository.newId())))
-      }
-    }
+    } else f
+
+  private def internalGetBasket(userId: String) =
+    repository
+      .getBasketByUserId(userId)
+      .getOrElse(repository.persistBasket(userId, Basket(repository.newId())))
 
   def getBasketById(userId: String): ServiceResponse[Basket] =
     authorizeAndCatchErrors(userId) {
-      validateIds(userId, None) {
-        ServiceResponse(_)
-      }
+      ServiceResponse(internalGetBasket(userId))
     }
 
   def addProduct(userId: String, item: BasketItem): ServiceResponse[Basket] =
     authorizeAndCatchErrors(userId) {
-      validateIds(userId, Some(item.productId)) { basket =>
-        repository.decreaseStock(item)
+      validateProductId(item.productId) {
+        //ideally, these operations should be enclosed in a transaction
         ServiceResponse {
-          repository.addProductAndPersist(userId, item)
+          repository.decreaseStock(item)
+          repository.persistBasket(userId, internalGetBasket(userId).add(item))
         }
       }
     }
 
   def removeProduct(userId: String, productId: String): ServiceResponse[Basket] =
     authorizeAndCatchErrors(userId) {
-      validateIds(userId, Some(productId)) { basket =>
+      validateProductId(productId) {
+        val basket = internalGetBasket(userId)
         basket.items.find(_.productId == productId) match {
           case Some(item) =>
-            repository.decreaseStock(BasketItem(productId, 1))
+            //ideally, these operations should be enclosed in a transaction
             ServiceResponse {
-              repository.removeProductAndPersist(userId, productId)
+              repository.increaseStock(productId)
+              println(basket.remove(productId))
+              repository.persistBasket(userId, basket.remove(productId))
             }
           case _ =>
             ServiceResponse(404, "Product not found in basket")
@@ -69,9 +69,15 @@ class BasketActor(repository: Repository) extends Actor with ActorLogging {
     }
 
   override def receive: Receive = {
-    case GetBasket(userId) => sender ! getBasketById(userId)
-    case AddProduct(userId, item) => sender ! addProduct(userId, item)
-    case RemoveProduct(userId, productId) => sender ! removeProduct(userId, productId)
-    case unknown => log.error(s"Unknown message received in BasketActor: $unknown")
+    case GetBasket(userId) =>
+      sender ! getBasketById(userId)
+    case AddProduct(userId, item) =>
+      sender ! addProduct(userId, item)
+    case RemoveProduct(userId, productId) =>
+      sender ! removeProduct(userId, productId)
+    case "ping" =>
+      sender ! "pong"
+    case unknown =>
+      log.error(s"Unknown message received in BasketActor: $unknown")
   }
 }

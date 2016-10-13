@@ -5,6 +5,7 @@ import javax.ws.rs.Path
 import akka.http.scaladsl.marshallers.sprayjson.SprayJsonSupport
 import akka.http.scaladsl.model.{StatusCode, StatusCodes}
 import akka.http.scaladsl.server.Directives._
+import akka.http.scaladsl.server.Route
 import akka.pattern.ask
 import akka.util.Timeout
 import com.wehkamp.basket._
@@ -30,23 +31,27 @@ trait BasketApi extends SprayJsonSupport with DefaultJsonProtocol {
 
   implicit def responseFormat[T: JsonWriter] = new JsonWriter[ServiceResponse[T]] {
     def write(o: ServiceResponse[T]) = o.errCode match {
-      case Some(code) => JsObject("errCode" -> JsNumber(code), "errMessage" -> JsString(o.errMessage.getOrElse("")))
-      case _ => o.entity.get.toJson
+      case Some(code) =>
+        JsObject("errCode" -> JsNumber(code), "errMessage" -> JsString(o.errMessage.getOrElse("")))
+      case _ => o.entity match {
+        case Some(entity) => entity.toJson
+        case _ => JsNull
+      }
     }
   }
 
-  def retrieve[S: JsonWriter](f: String => Future[_]) = headerValueByName("Auth") { userId =>
-    onComplete(f(userId)) {
-      case Success(v) => v match {
-        case ServiceResponse(_, Some(ec), _) =>
-          complete(StatusCode.int2StatusCode(ec) -> v.asInstanceOf[ServiceResponse[S]].toJson)
-        case ServiceResponse(Some(_), None, _) =>
-          complete(StatusCodes.Created -> v.asInstanceOf[ServiceResponse[S]].toJson)
-        case _ => complete(StatusCodes.InternalServerError -> "No response")
+  def retrieve[S: JsonWriter](f: String => Future[_]) = optionalHeaderValueByName("Auth") {
+    case Some(userId) =>
+      onSuccess(f(userId)) {
+        case response@ServiceResponse(_, Some(ec), _) =>
+          complete(StatusCode.int2StatusCode(ec) -> response.asInstanceOf[ServiceResponse[S]].toJson)
+        case response@ServiceResponse(Some(_), None, _) =>
+          complete(StatusCodes.Created -> response.asInstanceOf[ServiceResponse[S]].toJson)
+        case _ =>
+          complete(StatusCodes.InternalServerError -> "No response")
       }
-      case Failure(ex) => complete(StatusCodes.InternalServerError -> ex.getMessage)
-    }
-
+    case _ =>
+      complete(StatusCodes.Unauthorized -> "Auth header not sent.")
   }
 
   @ApiOperation(value = "Return basket content for an user", notes = "", nickname = "getBasket", httpMethod = "GET")
@@ -110,15 +115,8 @@ trait BasketApi extends SprayJsonSupport with DefaultJsonProtocol {
       }
     }
 
-  def test = get {
-    path("test") {
-      complete("test")
-    }
-  }
-
-  val basketRoutes =
-//    getBasket() ~
-//      addProduct() ~
-//      deleteProduct() ~
-      test
+  val basketRoutes: Route =
+    getBasket() ~
+      addProduct() ~
+      deleteProduct()
 }
