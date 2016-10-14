@@ -1,4 +1,4 @@
-# Akka HTTP REST Example - Instagram Pictures Filter
+# Akka HTTP REST Simulation
 
 Main goal of this project to show an example on how to use Akka HTTP as REST service.
 
