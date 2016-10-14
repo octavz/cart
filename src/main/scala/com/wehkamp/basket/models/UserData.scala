@@ -2,13 +2,13 @@ package com.wehkamp.basket.models
 
 import com.wehkamp.basket.exceptions.NotFoundException
 
-case class Basket(basketId: String, items: Set[BasketItem] = Set.empty) {
+case class UserData(userId: String, items: Set[BasketItem] = Set.empty) {
   def remove(productId: String) =
     items.find(_.productId == productId) match {
       case Some(p) =>
-        Basket(basketId = basketId,
+        UserData(userId = userId,
           items =
-            if (p.quantity > 1) items.filterNot(p == _) + p.copy(quantity = p.quantity - 1)
+            if (p.quantity > 1) items.filterNot(_.productId == productId) + p.copy(quantity = p.quantity - 1)
             else items.filterNot(p == _)
         )
       case _ =>

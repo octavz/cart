@@ -7,12 +7,13 @@ import akka.stream.ActorMaterializer
 import akka.testkit.{TestActor, TestProbe}
 import com.wehkamp.basket.{Main, Routes}
 import com.wehkamp.basket.messages.{AddProduct, GetBasket, RemoveProduct}
-import com.wehkamp.basket.models.{Basket, BasketItem}
+import com.wehkamp.basket.models.{UserData, BasketItem}
 import com.wehkamp.basket.services.ServiceResponse
 import com.wehkamp.basket.utils.{Config, HasActorSupport}
 import org.scalatest.{Matchers, WordSpec}
 import akka.pattern.ask
 import akka.util.Timeout
+import com.wehkamp.basket.dtos.{BasketDTO, ProductDTO}
 
 import scala.language.reflectiveCalls
 import scala.concurrent.duration._
@@ -24,6 +25,11 @@ class RoutesAndConfigSpecs
     with ScalatestRouteTest {
 
   val testUser = "testUser"
+
+  def basket(prods: String*) = BasketDTO(
+    content = prods.map(id => BasketItem(id, 1)).toSet,
+    products = prods.map(id => ProductDTO(id, s"name $id", s"desc $id", 12)).toSet)
+
   implicit val akkaTimeout = Timeout(10.seconds)
 
   def routes = new Routes with HasActorSupport with Config {
@@ -71,7 +77,7 @@ class RoutesAndConfigSpecs
 
   "GET /api/shoppingbasket should return the list of products in the basket" in {
     val r = routes
-    r.mockWithMessage(GetBasket(testUser), Basket("basket_id"))
+    r.mockWithMessage(GetBasket(testUser), basket("basket_id"))
 
     Get("/api/shoppingbasket/") ~> addHeader("Auth", testUser) ~> r.routes ~> check {
       r.probe.expectMsg(0.millis, GetBasket(testUser))
@@ -83,7 +89,7 @@ class RoutesAndConfigSpecs
 
   "POST /api/shoppingbasket/product should add a product in the basket" in {
     val r = routes
-    r.mockWithMessage(AddProduct(testUser, null), Basket("basket_id_post"))
+    r.mockWithMessage(AddProduct(testUser, null), basket("basket_id_post"))
     Post("/api/shoppingbasket/product", HttpEntity(MediaTypes.`application/json`, """{"productId": "1", "quantity": 1}""")) ~> addHeader("Auth", testUser) ~> r.routes ~> check {
       r.probe.expectMsg(0.millis, AddProduct(testUser, BasketItem("1", 1)))
       status.isSuccess()
@@ -94,7 +100,7 @@ class RoutesAndConfigSpecs
 
   "DELETE /api/shoppingbasket/product should delete a product from the basket" in {
     val r = routes
-    r.mockWithMessage(RemoveProduct(testUser, null), Basket("basket_id_delete"))
+    r.mockWithMessage(RemoveProduct(testUser, null), basket("basket_id_delete"))
     Delete("/api/shoppingbasket/product/id1") ~> addHeader("Auth", testUser) ~> r.routes ~> check {
       r.probe.expectMsg(0.millis, RemoveProduct(testUser, "id1"))
       status.isSuccess()
@@ -151,16 +157,18 @@ class RoutesAndConfigSpecs
       status.isFailure()
       status.value === "401"
       val response = responseAs[String]
-      println(response)
       assert(response.contains("No response"))
     }
   }
 
   "Main entry point contains valid actorSystem, materialier" in {
-    Main.main(Array.empty[String])
-    Main.actorSystem should not be null
-    Main.actorMaterializer should not be null
-    (Main.basketActor ? "ping").mapTo[String].map(_ === "pong")
-    Main.actorSystem.terminate()
+    try {
+      Main.main(Array.empty[String])
+      Main.actorSystem should not be null
+      Main.actorMaterializer should not be null
+      (Main.basketActor ? "ping").mapTo[String].map(_ === "pong")
+    } finally {
+      Main.actorSystem.terminate()
+    }
   }
 }

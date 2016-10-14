@@ -4,7 +4,7 @@ import akka.actor.{ActorRef, ActorSystem, Props}
 import akka.testkit.TestActorRef
 import com.wehkamp.basket.exceptions.{NotFoundException, StockException}
 import com.wehkamp.basket.messages.{AddProduct, GetBasket, RemoveProduct}
-import com.wehkamp.basket.models.{Basket, BasketItem}
+import com.wehkamp.basket.models.{UserData, BasketItem, WProduct}
 import com.wehkamp.basket.repositories.Repository
 import org.scalatest.{Matchers, WordSpec}
 import org.scalatest.mock.MockitoSugar
@@ -14,6 +14,7 @@ import org.mockito.invocation.InvocationOnMock
 import org.mockito.stubbing.Answer
 import akka.pattern.ask
 import akka.util.Timeout
+import com.wehkamp.basket.dtos.{BasketDTO, ProductDTO}
 
 import scala.concurrent.duration._
 import scala.concurrent.Await
@@ -23,7 +24,8 @@ class BasketActorSpec extends WordSpec with Matchers with MockitoSugar {
 
   val uid = "userId"
   val pid = "productId"
-  val basket = Basket(basketId = "basketId", items = Set(BasketItem("pid1", 1)))
+  val basket = UserData(userId = "basketId", items = Set(BasketItem("pid1", 1)))
+  val prods = Set(WProduct(pid, "name", "desc", 42, 10))
   implicit val akkaTimeout = Timeout(10.seconds)
 
   case class TestContext(actor: ActorRef, basket: BasketActor, repo: Repository)
@@ -124,14 +126,20 @@ class BasketActorSpec extends WordSpec with Matchers with MockitoSugar {
     val context = service()
 
     when(context.repo.userExists(anyString)).thenReturn(true)
+    when(context.repo.getProductsById(any[Set[String]])).thenReturn(prods)
     when(context.repo.getBasketByUserId(anyString)).thenReturn(Some(basket))
 
-    val res = Await.result(context.actor ? GetBasket(uid), 10.second).asInstanceOf[ServiceResponse[Basket]]
+    val res = Await.result(context.actor ? GetBasket(uid), 10.second).asInstanceOf[ServiceResponse[BasketDTO]]
 
     verify(context.repo).userExists(uid)
     verify(context.repo).getBasketByUserId(uid)
+    verify(context.repo).getProductsById(basket.items.map(_.productId))
 
-    res.entity should contain(basket)
+    res.entity should not be empty
+    val ent = res.entity.get
+    ent.content should contain(basket.items.head)
+    ent.products should contain(ProductDTO(prods.head.id, prods.head.name, prods.head.description, prods.head.price))
+
     res.errCode shouldBe empty
   }
 
@@ -139,38 +147,38 @@ class BasketActorSpec extends WordSpec with Matchers with MockitoSugar {
     val context = service()
 
     when(context.repo.userExists(anyString)).thenReturn(true)
+    when(context.repo.getProductsById(any[Set[String]])).thenReturn(prods)
     when(context.repo.getBasketByUserId(anyString)).thenReturn(None)
-    when(context.repo.persistBasket(anyString, any[Basket])).thenReturn(basket)
-    when(context.repo.newId()).thenReturn("newId")
+    when(context.repo.persistBasket(anyString, any[UserData])).thenReturn(basket)
 
-    val res = Await.result(context.actor ? GetBasket(uid), 10.seconds).asInstanceOf[ServiceResponse[Basket]]
+    val res = Await.result(context.actor ? GetBasket(uid), 10.seconds).asInstanceOf[ServiceResponse[BasketDTO]]
 
     verify(context.repo).userExists(uid)
-    verify(context.repo).newId()
     verify(context.repo).getBasketByUserId(uid)
-    verify(context.repo).persistBasket(uid, Basket("newId"))
+    verify(context.repo).persistBasket(uid, UserData(uid))
 
-    res.entity should contain(basket)
+    res.entity.get.content shouldBe basket.items
     res.errCode shouldBe empty
   }
 
   "addProduct should add a product to basket when it doesn't belong to the basket" in {
     val context = service()
-    val b = Basket("bid", Set.empty)
+    val b = UserData(uid, Set.empty)
     val item = BasketItem("pid1", 2)
 
     when(context.repo.userExists(anyString)).thenReturn(true)
     when(context.repo.productExists(anyString)).thenReturn(true)
     when(context.repo.getBasketByUserId(anyString)).thenReturn(Some(b))
+    when(context.repo.getProductsById(any[Set[String]])).thenReturn(prods)
 
     when(context.repo.decreaseStock(any[BasketItem])).thenReturn(9)
 
-    when(context.repo.persistBasket(anyString, any[Basket])).thenAnswer(new Answer[Basket] {
+    when(context.repo.persistBasket(anyString, any[UserData])).thenAnswer(new Answer[UserData] {
       override def answer(invocation: InvocationOnMock) =
-        invocation.getArguments.last.asInstanceOf[Basket]
+        invocation.getArguments.last.asInstanceOf[UserData]
     })
 
-    val res = Await.result(context.actor ? AddProduct(uid, item), 10.second).asInstanceOf[ServiceResponse[Basket]]
+    val res = Await.result(context.actor ? AddProduct(uid, item), 10.second).asInstanceOf[ServiceResponse[BasketDTO]]
 
     verify(context.repo).userExists(uid)
     verify(context.repo).productExists("pid1")
@@ -178,8 +186,8 @@ class BasketActorSpec extends WordSpec with Matchers with MockitoSugar {
     verify(context.repo).persistBasket(uid, b.copy(items = Set(BasketItem("pid1", 2))))
 
     res.entity should not be empty
-    res.entity.get.items.size shouldBe 1
-    res.entity.get.items should contain(BasketItem("pid1", 2))
+    res.entity.get.content.size shouldBe 1
+    res.entity.get.content should contain(BasketItem("pid1", 2))
     res.errCode shouldBe empty
   }
 
@@ -190,15 +198,14 @@ class BasketActorSpec extends WordSpec with Matchers with MockitoSugar {
     when(context.repo.userExists(anyString)).thenReturn(true)
     when(context.repo.productExists(anyString)).thenReturn(true)
     when(context.repo.getBasketByUserId(anyString)).thenReturn(Some(basket))
-
+    when(context.repo.getProductsById(any[Set[String]])).thenReturn(prods)
     when(context.repo.decreaseStock(any[BasketItem])).thenReturn(9)
-
-    when(context.repo.persistBasket(anyString, any[Basket])).thenAnswer(new Answer[Basket] {
+    when(context.repo.persistBasket(anyString, any[UserData])).thenAnswer(new Answer[UserData] {
       override def answer(invocation: InvocationOnMock) =
-        invocation.getArguments.last.asInstanceOf[Basket]
+        invocation.getArguments.last.asInstanceOf[UserData]
     })
 
-    val res = Await.result(context.actor ? AddProduct(uid, item),10.second).asInstanceOf[ServiceResponse[Basket]]
+    val res = Await.result(context.actor ? AddProduct(uid, item), 10.second).asInstanceOf[ServiceResponse[BasketDTO]]
 
     verify(context.repo).userExists(uid)
     verify(context.repo).productExists("pid1")
@@ -206,21 +213,22 @@ class BasketActorSpec extends WordSpec with Matchers with MockitoSugar {
     verify(context.repo).persistBasket(uid, basket.copy(items = Set(BasketItem("pid1", 3))))
 
     res.entity should not be empty
-    res.entity.get.items.size shouldBe 1
-    res.entity.get.items should contain(BasketItem("pid1", 3))
+    res.entity.get.content.size shouldBe 1
+    res.entity.get.content should contain(BasketItem("pid1", 3))
     res.errCode shouldBe empty
   }
 
   "removeProduct should fail with 404 when no product exists in basket" in {
     val context = service()
-    val b = Basket("bid", Set(BasketItem("p1", 1), BasketItem("p2", 1), BasketItem("p3", 1)))
+    val b = UserData(uid, Set(BasketItem("p1", 1), BasketItem("p2", 1), BasketItem("p3", 1)))
 
     when(context.repo.userExists(anyString)).thenReturn(true)
     when(context.repo.productExists(anyString)).thenReturn(true)
+    when(context.repo.getProductsById(any[Set[String]])).thenReturn(prods)
     when(context.repo.getBasketByUserId(anyString)).thenReturn(Some(b))
     when(context.repo.increaseStock(anyString)).thenReturn(9)
 
-    val res = Await.result(context.actor ? RemoveProduct(uid, "p4"),10.seconds).asInstanceOf[ServiceResponse[Basket]]
+    val res = Await.result(context.actor ? RemoveProduct(uid, "p4"), 10.seconds).asInstanceOf[ServiceResponse[BasketDTO]]
 
     val newbasket = b.copy(items = Set(BasketItem("p1", 1), BasketItem("p3", 1)))
     verify(context.repo).userExists(uid)
@@ -232,21 +240,22 @@ class BasketActorSpec extends WordSpec with Matchers with MockitoSugar {
     res.errCode should contain(404)
   }
 
-  "removeProduct should return new basket without this product" in {
+  "removeProduct should return basket without this product" in {
     val context = service()
-    val b = Basket("bid", Set(BasketItem("p1", 1), BasketItem("p2", 1), BasketItem("p3", 1)))
+    val b = UserData("bid", Set(BasketItem("p1", 1), BasketItem("p2", 1), BasketItem("p3", 1)))
 
     when(context.repo.userExists(anyString)).thenReturn(true)
     when(context.repo.productExists(anyString)).thenReturn(true)
+    when(context.repo.getProductsById(any[Set[String]])).thenReturn(prods)
     when(context.repo.getBasketByUserId(anyString)).thenReturn(Some(b))
     when(context.repo.increaseStock(anyString)).thenReturn(9)
 
-    when(context.repo.persistBasket(anyString, any[Basket])).thenAnswer(new Answer[Basket] {
+    when(context.repo.persistBasket(anyString, any[UserData])).thenAnswer(new Answer[UserData] {
       override def answer(invocation: InvocationOnMock) =
-        invocation.getArguments.last.asInstanceOf[Basket]
+        invocation.getArguments.last.asInstanceOf[UserData]
     })
 
-    val res = Await.result(context.actor ? RemoveProduct(uid, "p2"),10.seconds).asInstanceOf[ServiceResponse[Basket]]
+    val res = Await.result(context.actor ? RemoveProduct(uid, "p2"), 10.seconds).asInstanceOf[ServiceResponse[BasketDTO]]
 
     val newbasket = b.copy(items = Set(BasketItem("p1", 1), BasketItem("p3", 1)))
     verify(context.repo).userExists(uid)
@@ -255,9 +264,21 @@ class BasketActorSpec extends WordSpec with Matchers with MockitoSugar {
     verify(context.repo).persistBasket(uid, newbasket)
 
     res.entity should not be empty
-    res.entity.get.items.size shouldBe 2
-    res.entity.get.items should contain allOf(newbasket.items.head, newbasket.items.last)
+    res.entity.get.content.size shouldBe 2
+    res.entity.get.content should contain allOf(newbasket.items.head, newbasket.items.last)
     res.errCode shouldBe empty
+  }
+
+  "When removing from basket should verify existence in basket" in {
+    intercept[NotFoundException] {
+      basket.remove("p")
+    }
+  }
+
+  "When removing from basket should decrement if product exists" in {
+    val b = UserData(uid, Set(BasketItem(pid, 4)))
+    val newBasket = b.remove(pid)
+    newBasket.items.head.quantity shouldBe 3
   }
 
 

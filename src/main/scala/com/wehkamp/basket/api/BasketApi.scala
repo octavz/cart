@@ -8,9 +8,9 @@ import akka.http.scaladsl.server.Directives._
 import akka.http.scaladsl.server.Route
 import akka.pattern.ask
 import akka.util.Timeout
-import com.wehkamp.basket._
+import com.wehkamp.basket.dtos.{BasketDTO, ProductDTO}
 import com.wehkamp.basket.messages.{AddProduct, GetBasket, RemoveProduct}
-import com.wehkamp.basket.models.{Basket, BasketItem}
+import com.wehkamp.basket.models.{UserData, BasketItem}
 import com.wehkamp.basket.services.ServiceResponse
 import com.wehkamp.basket.utils.{Config, HasActorSupport}
 import io.swagger.annotations._
@@ -18,7 +18,6 @@ import spray.json.{DefaultJsonProtocol, _}
 
 import scala.concurrent.Future
 import scala.concurrent.duration._
-import scala.util._
 
 @Api(value = "/shoppingbasket", produces = "application/json")
 @Path("/shoppingbasket")
@@ -26,8 +25,11 @@ trait BasketApi extends SprayJsonSupport with DefaultJsonProtocol {
   this: HasActorSupport with Config =>
   implicit val askTimeout = Timeout(10.seconds)
 
+  implicit val productFormat = jsonFormat4(ProductDTO)
   implicit val itemFormat = jsonFormat2(BasketItem)
-  implicit val basketFormat = jsonFormat2(Basket)
+  implicit val basketFormat = jsonFormat2(UserData)
+  implicit val basketDTOFormat = jsonFormat2(BasketDTO)
+
 
   implicit def responseFormat[T: JsonWriter] = new JsonWriter[ServiceResponse[T]] {
     def write(o: ServiceResponse[T]) = o.errCode match {
@@ -46,7 +48,7 @@ trait BasketApi extends SprayJsonSupport with DefaultJsonProtocol {
         case response@ServiceResponse(_, Some(ec), _) =>
           complete(StatusCode.int2StatusCode(ec) -> response.asInstanceOf[ServiceResponse[S]].toJson)
         case response@ServiceResponse(Some(_), None, _) =>
-          complete(StatusCodes.Created -> response.asInstanceOf[ServiceResponse[S]].toJson)
+          complete(StatusCodes.OK -> response.asInstanceOf[ServiceResponse[S]].toJson)
         case _ =>
           complete(StatusCodes.InternalServerError -> "No response")
       }
@@ -59,13 +61,13 @@ trait BasketApi extends SprayJsonSupport with DefaultJsonProtocol {
     new ApiImplicitParam(name = "Auth", value = "user id", required = true, dataType = "string", paramType = "header", defaultValue = "a")
   ))
   @ApiResponses(Array(
-    new ApiResponse(code = 200, message = "Return basket", response = classOf[Basket]),
+    new ApiResponse(code = 200, message = "Return basket", response = classOf[UserData]),
     new ApiResponse(code = 401, message = "Not authorized"),
     new ApiResponse(code = 500, message = "Internal server error")
   ))
   @Path("/")
   def getBasket() = get {
-    retrieve[Basket] { userId =>
+    retrieve[BasketDTO] { userId =>
       basketActor ? GetBasket(userId)
     }
   }
@@ -76,7 +78,7 @@ trait BasketApi extends SprayJsonSupport with DefaultJsonProtocol {
     new ApiImplicitParam(name = "Auth", value = "user id", required = true, dataType = "string", paramType = "header", defaultValue = "a")
   ))
   @ApiResponses(Array(
-    new ApiResponse(code = 200, message = "Return basket", response = classOf[Basket]),
+    new ApiResponse(code = 200, message = "Return basket", response = classOf[UserData]),
     new ApiResponse(code = 401, message = "Not authorized"),
     new ApiResponse(code = 422, message = "Stock error"),
     new ApiResponse(code = 500, message = "Internal server error")
@@ -87,7 +89,7 @@ trait BasketApi extends SprayJsonSupport with DefaultJsonProtocol {
       post {
         entity(as[BasketItem]) {
           item =>
-            retrieve[Basket] { userId =>
+            retrieve[BasketDTO] { userId =>
               basketActor ? AddProduct(userId, item)
             }
         }
@@ -100,7 +102,7 @@ trait BasketApi extends SprayJsonSupport with DefaultJsonProtocol {
     new ApiImplicitParam(name = "Auth", value = "user id", required = true, dataType = "string", paramType = "header", defaultValue = "a")
   ))
   @ApiResponses(Array(
-    new ApiResponse(code = 200, message = "Return basket", response = classOf[Basket]),
+    new ApiResponse(code = 200, message = "Return basket", response = classOf[UserData]),
     new ApiResponse(code = 401, message = "Not authorized"),
     new ApiResponse(code = 500, message = "Internal server error")
   ))
@@ -109,7 +111,7 @@ trait BasketApi extends SprayJsonSupport with DefaultJsonProtocol {
     delete {
       path("product" / Segment) {
         productId =>
-          retrieve[Basket] { userId =>
+          retrieve[BasketDTO] { userId =>
             basketActor ? RemoveProduct(userId, productId)
           }
       }

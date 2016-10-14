@@ -1,10 +1,11 @@
 package com.wehkamp.basket.services
 
 import akka.actor.{Actor, ActorLogging}
+import com.wehkamp.basket.dtos.{BasketDTO, ProductDTO}
 import com.wehkamp.basket.exceptions.{NotFoundException, StockException}
 import com.wehkamp.basket.messages.{AddProduct, GetBasket, RemoveProduct}
 import com.wehkamp.basket.repositories.Repository
-import com.wehkamp.basket.models.{Basket, BasketItem}
+import com.wehkamp.basket.models.{UserData, BasketItem, WProduct}
 
 class BasketActor(repository: Repository) extends Actor with ActorLogging {
 
@@ -32,25 +33,37 @@ class BasketActor(repository: Repository) extends Actor with ActorLogging {
   private def internalGetBasket(userId: String) =
     repository
       .getBasketByUserId(userId)
-      .getOrElse(repository.persistBasket(userId, Basket(repository.newId())))
+      .getOrElse(repository.persistBasket(userId, UserData(userId)))
 
-  def getBasketById(userId: String): ServiceResponse[Basket] =
+  private[services] def toProductDTO(p: WProduct): ProductDTO =
+    ProductDTO(id = p.id, name = p.name, description = p.description, price = p.price)
+
+  private[services] def toDto(b: UserData): BasketDTO = {
+    val prods = repository
+      .getProductsById(b.items.map(_.productId))
+      .map(toProductDTO)
+    BasketDTO(b.items, prods)
+  }
+
+  def getBasketById(userId: String): ServiceResponse[BasketDTO] =
     authorizeAndCatchErrors(userId) {
-      ServiceResponse(internalGetBasket(userId))
+      ServiceResponse(
+        toDto(internalGetBasket(userId))
+      )
     }
 
-  def addProduct(userId: String, item: BasketItem): ServiceResponse[Basket] =
+  def addProduct(userId: String, item: BasketItem): ServiceResponse[BasketDTO] =
     authorizeAndCatchErrors(userId) {
       validateProductId(item.productId) {
         //ideally, these operations should be enclosed in a transaction
         ServiceResponse {
           repository.decreaseStock(item)
-          repository.persistBasket(userId, internalGetBasket(userId).add(item))
+          toDto(repository.persistBasket(userId, internalGetBasket(userId).add(item)))
         }
       }
     }
 
-  def removeProduct(userId: String, productId: String): ServiceResponse[Basket] =
+  def removeProduct(userId: String, productId: String): ServiceResponse[BasketDTO] =
     authorizeAndCatchErrors(userId) {
       validateProductId(productId) {
         val basket = internalGetBasket(userId)
@@ -59,8 +72,7 @@ class BasketActor(repository: Repository) extends Actor with ActorLogging {
             //ideally, these operations should be enclosed in a transaction
             ServiceResponse {
               repository.increaseStock(productId)
-              println(basket.remove(productId))
-              repository.persistBasket(userId, basket.remove(productId))
+              toDto(repository.persistBasket(userId, basket.remove(productId)))
             }
           case _ =>
             ServiceResponse(404, "Product not found in basket")
